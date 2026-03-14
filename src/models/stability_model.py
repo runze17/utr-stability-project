@@ -6,42 +6,45 @@ from src.models.utr_cross_attention import UTRCrossAttention
 from src.models.utr_pooling import UTRPooling
 
 
-class StabilityPredictor(nn.Module):
-    def __init__(
-        self,
-        encoder_name="facebook/esm2_t6_8M_UR50D",
-        hidden_dim=320,
-        num_heads=4,
-        use_cross_attention=True,
-    ):
+class StabilityModel(nn.Module):
+
+    def __init__(self):
+
         super().__init__()
 
-        self.encoder = RNAFMEncoder(model_name=encoder_name)
-        self.use_cross_attention = use_cross_attention
+        self.encoder = RNAFMEncoder()
 
-        if self.use_cross_attention:
-            self.cross_attention = UTRCrossAttention(
-                hidden_dim=hidden_dim,
-                num_heads=num_heads
-            )
+        hidden = self.encoder.hidden_dim
 
-        self.pooling = UTRPooling(mode="mean")
+        self.cross_attention = UTRCrossAttention(hidden)
+
+        self.utr_pooling = UTRPooling()
 
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, 256),
+            nn.Linear(hidden, 256),
             nn.ReLU(),
-            nn.Dropout(0.1),
             nn.Linear(256, 1)
         )
 
-    def forward(self, input_ids, attention_mask, region_mask):
-        hidden_states = self.encoder(input_ids, attention_mask)
+    def forward(self, sequences, region_mask):
 
-        if self.use_cross_attention:
-            hidden_states = self.cross_attention(hidden_states, region_mask)
+        """
+        sequences : list[str]
+        region_mask : [B, L]
+        """
 
-        pooled = self.pooling(hidden_states, region_mask)
+        embeddings = self.encoder(sequences)
 
-        pred = self.mlp(pooled).squeeze(-1)
+        x = self.cross_attention(
+            embeddings,
+            region_mask
+        )
 
-        return pred
+        pooled = self.utr_pooling(
+            x,
+            region_mask
+        )
+
+        out = self.mlp(pooled)
+
+        return out.squeeze(-1)

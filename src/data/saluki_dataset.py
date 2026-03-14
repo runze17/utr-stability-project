@@ -5,54 +5,54 @@ from torch.utils.data import Dataset
 
 class SalukiDataset(Dataset):
     """
-    Dataset for mRNA stability prediction
+    Dataset for mRNA stability prediction.
+
+    Each sample returns:
+        input_ids   : tokenized mRNA sequence
+        region_mask : mask indicating 3'UTR region
+        label       : mRNA half-life
     """
 
-    def __init__(self, csv_path, tokenizer, max_length=4096):
+    def __init__(self, csv_path, tokenizer, max_len=4096):
         self.df = pd.read_csv(csv_path)
         self.tokenizer = tokenizer
-        self.max_length = max_length
+        self.max_len = max_len
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-
         row = self.df.iloc[idx]
 
-        sequence = row["sequence"]
-        half_life = row["half_life"]
+        seq = row["sequence"]
+        label = torch.tensor(row["half_life"], dtype=torch.float32)
 
-        utr5_len = row["utr5_len"]
-        cds_len = row["cds_len"]
-        utr3_len = row["utr3_len"]
-
-        # tokenizer
-        tokens = self.tokenizer(
-            sequence,
+        tokenized = self.tokenizer(
+            seq,
             padding="max_length",
             truncation=True,
-            max_length=self.max_length,
+            max_length=self.max_len,
             return_tensors="pt"
         )
 
-        input_ids = tokens["input_ids"].squeeze(0)
-        attention_mask = tokens["attention_mask"].squeeze(0)
+        input_ids = tokenized["input_ids"].squeeze(0)
 
-        # region mask
-        region_mask = torch.zeros(self.max_length)
+        # 3'UTR region mask
+        region_mask = torch.zeros(self.max_len, dtype=torch.float32)
 
-        end_utr5 = utr5_len
-        end_cds = utr5_len + cds_len
-        end_utr3 = utr5_len + cds_len + utr3_len
+        utr5_len = int(row["utr5_len"])
+        cds_len = int(row["cds_len"])
+        utr3_len = int(row["utr3_len"])
 
-        region_mask[:end_utr5] = 0
-        region_mask[end_utr5:end_cds] = 1
-        region_mask[end_cds:end_utr3] = 2
+        start = utr5_len + cds_len
+        end = start + utr3_len
+
+        end = min(end, self.max_len)
+
+        region_mask[start:end] = 1
 
         return {
             "input_ids": input_ids,
-            "attention_mask": attention_mask,
             "region_mask": region_mask,
-            "label": torch.tensor(half_life, dtype=torch.float)
+            "label": label
         }
